@@ -4,22 +4,268 @@ output:
   html_document:
     keep_md: true
 ---
+```{r LoadLibaries,echo=FALSE}
+suppressPackageStartupMessages(library("plyr", quietly=TRUE))
+suppressPackageStartupMessages(library("dplyr", quietly=TRUE))
+suppressPackageStartupMessages(library("ggplot2", quietly=TRUE))
+suppressMessages(library("plyr"))
+suppressMessages(library("dplyr"))
+suppressMessages(library("ggplot2"))
+library(plyr, quietly=TRUE, warn.conflicts=FALSE)
+library(dplyr, quietly=TRUE, warn.conflicts=FALSE)
+library(ggplot2, quietly=TRUE, warn.conflicts=FALSE)
+```
 
+### Part 1: Loading and preprocessing the data  
 
-## Loading and preprocessing the data
+1. Load the data (i.e. read.csv()).
+2. Process/transform the data (if necessary) into a format suitable for your analysis.
 
+To begin with, let us load our data set.
 
+```{r P1Load,echo=TRUE}
+activity <- read.csv("activity.csv")
+```
 
-## What is mean total number of steps taken per day?
+Let us also take a look at the structure and first few rows.
 
+```{r P1Look,echo=TRUE}
+str(activity)
+head(activity)
+```
 
+The date column is a factor; let us convert it to date. 
 
-## What is the average daily activity pattern?
+```{r P1Convert,echo=TRUE}
+activity$date <- as.Date(activity$date, format="%Y-%m-%d")
+```
 
+Let us have a look again, after this conversion.  
 
+```{r P1Look2,echo=TRUE}
+str(activity)
+head(activity)
+```
 
-## Imputing missing values
+### Part 2. What is mean total number of steps taken per day?  
 
+1. Make a histogram of the total number of steps taken each day.    
+2. Calculate and report the mean and median total number of steps taken per day.  
 
+Since we have several missing values in our data set, iet us first create a  new data set with only complete cases.  
 
-## Are there differences in activity patterns between weekdays and weekends?
+```{r P2Complete,echo=TRUE}
+complete_activity <- activity[complete.cases(activity),]
+```
+
+Let us create a summary data set with the total number of steps taken each day.  
+
+```{r P2Summary,echo=TRUE}
+daily_summary <- ddply(complete_activity,"date",summarise,totalsteps=sum(steps))
+```
+
+Let us also take a look at the structure and first few rows of this data set.
+
+```{r P2Look,echo=TRUE}
+str(daily_summary)
+head(daily_summary)
+```
+
+Let us now make the histogram for the total number of steps taken each day.  
+
+```{r P2Histogram,echo=TRUE}
+ggplot(daily_summary,aes(totalsteps)) +
+    geom_histogram(breaks=seq(min(daily_summary$totalsteps),max(daily_summary$totalsteps),by=1000)) +  
+    xlab("Daily Total Steps") + ylab("Frequency") + 
+    ggtitle("Frequency of total number of steps taken each day") + 
+    theme_bw()
+```
+
+And finally, let us find the mean and median for total number of steps taken per day.  
+
+```{r P2MeanMedian,echo=TRUE}
+act_mean_totalsteps <- round(mean(daily_summary$totalsteps),1)
+act_mean_totalsteps
+act_median_totalsteps <- round(median(daily_summary$totalsteps),1)
+act_median_totalsteps
+```
+
+We see that:  
+- The mean total number of steps taken per day is `r as.character(act_mean_totalsteps)`.  
+- And the median total number of steps taken per day is `r as.character(act_median_totalsteps)`.  
+
+### Part 3. What is the average daily activity pattern?  
+1. Make a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)  
+2. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+
+Let us create another summary data set with the average number of steps taken for each interval, averaged across all days.
+
+```{r P3Summary,echo=TRUE}
+interval_summary <- ddply(complete_activity,"interval",summarise,avgintervalsteps=mean(steps))
+```
+
+Let us also take a look at the structure and first few rows of this data set.
+
+```{r P3Look,echo=TRUE}
+str(interval_summary)
+head(interval_summary)
+```
+
+Let us now create the line plot.  
+
+```{r P3LinePlot,echo=TRUE}
+ggplot(interval_summary,aes(interval,avgintervalsteps)) + 
+    geom_line() +
+    xlab("Intervals") + ylab("Average number of steps") + 
+    ggtitle("Average number of steps for each interval") + 
+    theme_bw()
+```
+
+Now let us find out which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps. For this, let us sort our dataset in the descending order and pick the first interval.  
+
+```{r P3BestInterval,echo=TRUE}
+sorted_interval_summary <- arrange(interval_summary,desc(avgintervalsteps))
+best_interval <- sorted_interval_summary[1,1]
+best_interval
+```
+
+We see that the best interval, which contains the maximum number of steps on average is `r best_interval`.
+
+### Part 4. Imputing missing values
+1. Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NAs)
+2. Devise a strategy for filling in all of the missing values in the dataset. The strategy does not need to be sophisticated. For example, you could use the mean/median for that day, or the mean for that 5-minute interval, etc.
+3. Create a new dataset that is equal to the original dataset but with the missing data filled in.
+4. Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day. Do these values differ from the estimates from the first part of the assignment? What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+Let us find out the number of missing values for each column first, before finding the number of incomplete rows.
+
+```{r P4NA,echo=TRUE}
+na_steps <- sum(is.na(activity$steps))
+na_steps
+na_date <- sum(is.na(activity$date))
+na_date
+na_interval <- sum(is.na(activity$interval))
+na_interval
+```
+
+We see that:  
+
+- Number of missing values for steps = `r na_steps`  
+- Number of missing values for date = `r na_date`  
+- Number of missing values for interval = `r na_interval`    
+
+Since there are no missing values for date or interval, the number of incomplete rows is also `r na_steps`.  
+
+Now let us fill in all the missing values (as we saw, for steps). Let us create a copy of our data set and fill in that, so that we have the original with us in case we need it later. We will use the average value of steps for that interval (which we have already computed) for filling in the missing data. 
+
+```{r P4Impute,echo=TRUE}
+assign("imputed_activity",activity)
+for(i in 1:nrow(imputed_activity)){
+    if(is.na(imputed_activity[i,1])){
+		interval_idx <- ((60*(imputed_activity[i,3] %/% 100) + (imputed_activity[i,3] %% 100))/5) + 1
+		imputed_activity[i,1] <- interval_summary[interval_idx,2]
+	}
+}
+```
+
+Let us see the structure and the first few rows of the new data set.
+
+```{r P4Look, echo=TRUE}
+str(imputed_activity)
+head(imputed_activity)
+```
+
+We can see in the first few rows itelf that the missing values no longer appear. To be sure, let us check if there are any more missing values for steps.
+
+```{r P4NARepeat,echo=TRUE}
+na_steps_new <- sum(is.na(imputed_activity$steps))
+na_steps_new
+```
+
+We can see that the missing values for steps have now become `r na_steps_new`.  
+
+Now let us create a summary data set with the total number of steps taken each day, using the imputed data set. 
+
+```{r P4Summary,echo=TRUE}
+daily_summary_imputed <- ddply(imputed_activity,"date",summarise,totalsteps=sum(steps,na.rm=TRUE))
+```
+
+Let us also take a look at the structure and first few rows of this data set.
+
+```{r P4Look2,echo=TRUE}
+str(daily_summary_imputed)
+head(daily_summary_imputed)
+```
+
+Let us now make the histogram for the total number of steps taken each day.  
+
+```{r P4Histogram,echo=TRUE}
+ggplot(daily_summary_imputed,aes(totalsteps)) +
+    geom_histogram(breaks=seq(min(daily_summary_imputed$totalsteps),max(daily_summary_imputed$totalsteps),by=1000)) +  
+    xlab("Daily Total Steps") + ylab("Frequency") + 
+    ggtitle("Frequency of total number of steps taken each day") + 
+    theme_bw()
+```
+
+And finally, let us find the mean and median for total number of steps taken per day.  
+
+```{r P4MeanMedian,echo=TRUE}
+act_mean_totalsteps_imputed <- round(mean(daily_summary_imputed$totalsteps),1)
+act_mean_totalsteps_imputed
+act_median_totalsteps_imputed <- round(median(daily_summary_imputed$totalsteps),1)
+act_median_totalsteps_imputed
+```
+
+After imputing, we see that:  
+- The new mean total number of steps taken per day is `r as.character(act_mean_totalsteps_imputed)`.   
+- And the new median total number of steps taken per day is `r as.character(act_median_totalsteps_imputed)`.  
+
+While the mean has remained same before and after imputing, median has increased very slightly.  
+
+### Part 5. Are there differences in activity patterns between weekdays and weekends?  
+
+1. Create a new factor variable in the dataset with two levels -- "weekday" and "weekend" indicating whether a given date is a weekday or weekend day.  
+2. Make a panel plot containing a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis).  
+
+Let us first introduce a new column, daytype, indicating whether a day is a weekday or not.
+
+```{r P5DayType,echo=TRUE}
+imputed_activity <- mutate(imputed_activity, 
+                           daytype = ifelse(
+                               weekdays(imputed_activity$date) == "Saturday"
+                               | weekdays(imputed_activity$date) == "Sunday", 
+                               "weekend", "weekday"))
+imputed_activity$daytype <- as.factor(imputed_activity$daytype)
+```
+
+Let us see the structure and the first few rows of the modified data set.
+
+```{r P5Look, echo=TRUE}
+str(imputed_activity)
+head(imputed_activity)
+```
+
+Let us create another summary data set with the average number of steps taken for each interval, averaged across all days.
+
+```{r P5Summary,echo=TRUE}
+interval_summary_imputed <- ddply(imputed_activity,c("interval","daytype"),summarise,avgintervalsteps=mean(steps))
+```
+
+Let us also take a look at the structure and first few rows of this data set.
+
+```{r P5Look2,echo=TRUE}
+str(interval_summary_imputed)
+head(interval_summary_imputed)
+```
+
+Let us now create the panel plot.  
+
+```{r P5PanelPlot,echo=TRUE}
+ggplot(interval_summary_imputed,aes(interval,avgintervalsteps)) +
+    geom_line() + facet_wrap(~daytype, ncol = 1, nrow=2) + 
+    xlab("Intervals") + ylab("Average number of steps") + 
+    ggtitle("Average number of steps for each interval") + 
+    theme_bw()
+```
+
+From the plot, we see that during weekdays, the activities are more concentrated in the mornings, while on weekends, they are more spreadout through the day by comparison.
